@@ -128,18 +128,18 @@ end = struct
 
     let one_of : char list -> char t =
       fun chars ->
-        { regex = Re.group (Re.set (String.of_char_list chars))
-        ; num_captures = 1
-        ; extract_value_from_captured_groups = get_first_char_of_group
-        }
+      { regex = Re.group (Re.set (String.of_char_list chars))
+      ; num_captures = 1
+      ; extract_value_from_captured_groups = get_first_char_of_group
+      }
     ;;
 
     let not_one_of : char list -> char t =
       fun chars ->
-        { regex = Re.group (Re.compl [ Re.set (String.of_char_list chars) ])
-        ; num_captures = 1
-        ; extract_value_from_captured_groups = get_first_char_of_group
-        }
+      { regex = Re.group (Re.compl [ Re.set (String.of_char_list chars) ])
+      ; num_captures = 1
+      ; extract_value_from_captured_groups = get_first_char_of_group
+      }
     ;;
   end
 
@@ -173,10 +173,10 @@ end = struct
 
   let ignore_m : _ t -> unit t =
     fun t ->
-      { regex = Re.no_group t.regex
-      ; num_captures = 0
-      ; extract_value_from_captured_groups = extract_nothing
-      }
+    { regex = Re.no_group t.regex
+    ; num_captures = 0
+    ; extract_value_from_captured_groups = extract_nothing
+    }
   ;;
 
   let and_capture (t : 'a t) : ('a * string) t =
