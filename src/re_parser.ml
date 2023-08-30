@@ -21,11 +21,11 @@ end = struct
     let map =
       `Custom
         (fun t ~f ->
-           { t with
-             extract_value_from_captured_groups =
-               (fun ~captures ~offset ->
-                  Option.map (t.extract_value_from_captured_groups ~captures ~offset) ~f)
-           })
+          { t with
+            extract_value_from_captured_groups =
+              (fun ~captures ~offset ->
+                Option.map (t.extract_value_from_captured_groups ~captures ~offset) ~f)
+          })
     ;;
 
     let apply tf tx =
@@ -184,13 +184,13 @@ end = struct
     ; num_captures = t.num_captures + 1
     ; extract_value_from_captured_groups =
         (fun ~captures ~offset ->
-           let full_capture : string option =
-             get_first_string_of_group ~captures ~offset
-           in
-           let previous_capture : 'a option =
-             t.extract_value_from_captured_groups ~captures ~offset:(offset + 1)
-           in
-           Option.both previous_capture full_capture)
+          let full_capture : string option =
+            get_first_string_of_group ~captures ~offset
+          in
+          let previous_capture : 'a option =
+            t.extract_value_from_captured_groups ~captures ~offset:(offset + 1)
+          in
+          Option.both previous_capture full_capture)
     }
   ;;
 
@@ -260,7 +260,7 @@ end = struct
     Staged.stage (fun s ->
       Re.exec_opt rex s
       |> Option.bind ~f:(fun captures ->
-        t.extract_value_from_captured_groups ~captures ~offset:1))
+           t.extract_value_from_captured_groups ~captures ~offset:1))
   ;;
 
   let run ?case_sensitive (t : 'a t) = Staged.unstage (compile ?case_sensitive t)
@@ -289,10 +289,10 @@ end = struct
     ; num_captures = t.num_captures + 1
     ; extract_value_from_captured_groups =
         (fun ~captures ~offset ->
-           match Re.Group.get_opt captures offset with
-           | None -> Some None
-           | Some _ ->
-             Some (t.extract_value_from_captured_groups ~captures ~offset:(offset + 1)))
+          match Re.Group.get_opt captures offset with
+          | None -> Some None
+          | Some _ ->
+            Some (t.extract_value_from_captured_groups ~captures ~offset:(offset + 1)))
     }
   ;;
 
