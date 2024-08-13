@@ -255,19 +255,46 @@ end = struct
     Re.compile regex
   ;;
 
-  let compile ?(case_sensitive = true) (t : 'a t) =
-    let rex = compile_regex ~case_sensitive t in
-    Staged.stage (fun s ->
-      Re.exec_opt rex s
-      |> Option.bind ~f:(fun captures ->
-           t.extract_value_from_captured_groups ~captures ~offset:1))
+  module Compiled = struct
+    type 'a t =
+      { rex : Re.re
+      ; extract_value_from_captured_groups :
+          captures:Re.Group.t -> offset:int -> 'a option
+      }
+  end
+
+  let compile ?(case_sensitive = true) t : _ Compiled.t =
+    { rex = compile_regex ~case_sensitive t
+    ; extract_value_from_captured_groups = t.extract_value_from_captured_groups
+    }
   ;;
 
-  let run ?case_sensitive (t : 'a t) = Staged.unstage (compile ?case_sensitive t)
+  let run (compiled : _ Compiled.t) s =
+    Re.exec_opt compiled.rex s
+    |> Option.bind ~f:(fun captures ->
+      compiled.extract_value_from_captured_groups ~captures ~offset:1)
+  ;;
 
-  let matches ?(case_sensitive = true) t =
-    let rex = compile_regex ~case_sensitive t in
-    fun input -> Re.execp rex input
+  let matches (compiled : _ Compiled.t) input = Re.execp compiled.rex input
+
+  let run_all (compiled : _ Compiled.t) s =
+    Re.all compiled.rex s
+    |> List.filter_map ~f:(fun captures ->
+      compiled.extract_value_from_captured_groups ~captures ~offset:1)
+  ;;
+
+  let run_and_split (compiled : _ Compiled.t) s =
+    let open Either.Export in
+    List.filter_map (Re.split_full compiled.rex s) ~f:(function
+      | `Text string -> if String.is_empty string then None else Some (Second string)
+      | `Delim captures ->
+        (match compiled.extract_value_from_captured_groups ~captures ~offset:1 with
+         | Some value -> Some (First value)
+         | None ->
+           raise_s
+             (Sexp.message
+                "BUG Re_parser.run_and_split: regex match without parsed value"
+                [ "", Atom Stdlib.__LOC__ ])))
   ;;
 
   let fail =
