@@ -13,8 +13,8 @@ depends: [
   "ocaml" {>= "5.1.0"}
   "base"
   "regex_parser_intf"
-  "dune"              {>= "3.11.0"}
-  "re"                {>= "1.8.0"}
+  "dune"              {>= "3.17.0"}
+  "re"                {= "1.14.0+ox"}
 ]
 available: arch != "arm32" & arch != "x86_32"
 synopsis: "Typed parsing using regular expressions."
