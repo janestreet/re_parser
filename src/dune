@@ -2,4 +2,5 @@
  (name re_parser)
  (public_name re_parser)
  (libraries base re regex_parser_intf)
- (preprocess no_preprocessing))
+ (preprocess
+  (pps ppx_template)))

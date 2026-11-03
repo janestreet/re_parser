@@ -1,52 +1,91 @@
 open! Base
+open Re_parser_intf.Definitions
 
-module Body : sig
-  include Re_parser_intf.S
-end = struct
-  module T = struct
-    type 'a t =
-      { regex : Re.t
-      ; num_captures : int
-      ; extract_value_from_captured_groups :
-          captures:Re.Group.t -> offset:int -> 'a option
-      }
+module Maybe_portable = struct
+  let wrap = Fn.id
+  let unwrap = Fn.id
+  let wrap_list = Fn.id
+end
 
-    let return x =
-      { regex = Re.epsilon
-      ; num_captures = 0
-      ; extract_value_from_captured_groups = (fun ~captures:_ ~offset:_ -> Some x)
-      }
-    ;;
+module Body : S = struct
+  type 'a t =
+    { regex : Re.t
+    ; num_captures : int
+    ; extract_value_from_captured_groups : captures:Re.Group.t -> offset:int -> 'a option
+    }
 
-    let map =
-      `Custom
-        (fun t ~f ->
-          { t with
-            extract_value_from_captured_groups =
-              (fun ~captures ~offset ->
-                Option.map (t.extract_value_from_captured_groups ~captures ~offset) ~f)
-          })
-    ;;
+  let return (type a) (x : a) : a t =
+    { regex = Re.epsilon
+    ; num_captures = 0
+    ; extract_value_from_captured_groups = (fun ~captures:_ ~offset:_ -> Some x)
+    }
+  ;;
 
-    let apply tf tx =
-      let extract_value_from_captured_groups ~captures ~offset =
-        let f = tf.extract_value_from_captured_groups ~captures ~offset in
-        let x =
-          tx.extract_value_from_captured_groups
-            ~captures
-            ~offset:(offset + tf.num_captures)
-        in
-        Option.map2 f x ~f:(fun f x -> f x)
+  let map (t : 'a t) ~(f : 'a -> 'b) : 'b t =
+    { t with
+      extract_value_from_captured_groups =
+        (fun ~captures ~offset ->
+          Option.map (t.extract_value_from_captured_groups ~captures ~offset) ~f)
+    }
+  ;;
+
+  let apply (tf : ('a -> 'b) t) (tx : 'a t) : 'b t =
+    let extract_value_from_captured_groups ~captures ~offset =
+      let f = tf.extract_value_from_captured_groups ~captures ~offset in
+      let x =
+        tx.extract_value_from_captured_groups ~captures ~offset:(offset + tf.num_captures)
       in
-      { regex = Re.seq [ tf.regex; tx.regex ]
-      ; num_captures = tf.num_captures + tx.num_captures
-      ; extract_value_from_captured_groups
-      }
-    ;;
-  end
+      Option.map2 f x ~f:(fun f x -> f x)
+    in
+    { regex = Re.seq [ tf.regex; tx.regex ]
+    ; num_captures = tf.num_captures + tx.num_captures
+    ; extract_value_from_captured_groups
+    }
+  ;;
 
-  include T
-  include Applicative.Make (T)
+  (* Inlined from [Applicative.Make] *)
+
+  let map2 ta tb ~f = apply (map ta ~f) tb
+  let map3 ta tb tc ~f = apply (apply (map ta ~f) tb) tc
+  let both ta tb = map2 ta tb ~f:(fun a b -> a, b)
+  let ( <*> ) = apply
+  let ( >>| ) t f = map t ~f
+  let ( *> ) u v = apply (apply (return (fun () y -> y)) u) v
+  let ( <* ) u v = apply (apply (return (fun x () -> x)) u) v
+
+  let all (ts : 'a t list) : 'a list t =
+    let ts = Maybe_portable.wrap_list ts in
+    List.fold_right
+      ts
+      ~init:
+        (Maybe_portable.wrap
+           { regex = Re.epsilon
+           ; num_captures = 0
+           ; extract_value_from_captured_groups = (fun ~captures:_ ~offset:_ -> Some [])
+           })
+      ~f:(fun t acc ->
+        Maybe_portable.wrap
+          (map2 (Maybe_portable.unwrap t) (Maybe_portable.unwrap acc) ~f:(fun x xs ->
+             x :: xs)))
+    |> Maybe_portable.unwrap
+  ;;
+
+  let all_unit (ts : unit t list) : unit t =
+    let ts = Maybe_portable.wrap_list ts in
+    List.fold
+      ts
+      ~init:(Maybe_portable.wrap (return ()))
+      ~f:(fun acc t ->
+        Maybe_portable.wrap (Maybe_portable.unwrap acc *> Maybe_portable.unwrap t))
+    |> Maybe_portable.unwrap
+  ;;
+
+  module Applicative_infix = struct
+    let ( <*> ) = ( <*> )
+    let ( *> ) = ( *> )
+    let ( <* ) = ( <* )
+    let ( >>| ) = ( >>| )
+  end
 
   let extract_nothing ~captures:_ ~offset:_ = Some ()
   let get_first_string_of_group ~captures ~offset = Re.Group.get_opt captures offset
@@ -126,16 +165,14 @@ end = struct
       }
     ;;
 
-    let one_of : char list -> char t =
-      fun chars ->
+    let one_of (chars : char list) : char t =
       { regex = Re.group (Re.set (String.of_char_list chars))
       ; num_captures = 1
       ; extract_value_from_captured_groups = get_first_char_of_group
       }
     ;;
 
-    let not_one_of : char list -> char t =
-      fun chars ->
+    let not_one_of (chars : char list) : char t =
       { regex = Re.group (Re.compl [ Re.set (String.of_char_list chars) ])
       ; num_captures = 1
       ; extract_value_from_captured_groups = get_first_char_of_group
@@ -171,8 +208,7 @@ end = struct
     }
   ;;
 
-  let ignore_m : _ t -> unit t =
-    fun t ->
+  let ignore_m (t : 'a t) : unit t =
     { regex = Re.no_group t.regex
     ; num_captures = 0
     ; extract_value_from_captured_groups = extract_nothing
@@ -194,9 +230,9 @@ end = struct
     }
   ;;
 
-  let capture (t : unit t) : string t = map (and_capture t) ~f:snd
+  let capture t = map (and_capture t) ~f:snd
 
-  let repeat ?(greedy = true) ?(min = 0) ?(max = None) (t : unit t) =
+  let repeat ?(greedy = true) ?(min = 0) ?(max = None) (t : unit t) : unit t =
     let repeating_re = Re.repn t.regex min max in
     let re =
       match greedy with
@@ -215,7 +251,7 @@ end = struct
     | false -> Re.no_case t.regex
   ;;
 
-  let of_re t =
+  let of_re (t : Re.t) : unit t =
     { regex = Re.no_group t
     ; num_captures = 0
     ; extract_value_from_captured_groups = extract_nothing
@@ -248,12 +284,7 @@ end = struct
     }
   ;;
 
-  let times (t : unit t) (amt : int) = repeat ~min:amt ~max:(Some amt) t
-
-  let compile_regex ?(case_sensitive = true) (t : 'a t) =
-    let regex = to_re ~case_sensitive t in
-    Re.compile regex
-  ;;
+  let times t amt = repeat ~min:amt ~max:(Some amt) t
 
   module Compiled = struct
     type 'a t =
@@ -263,8 +294,8 @@ end = struct
       }
   end
 
-  let compile ?(case_sensitive = true) t : _ Compiled.t =
-    { rex = compile_regex ~case_sensitive t
+  let compile ?(case_sensitive = true) (t : 'a t) : 'a Compiled.t =
+    { rex = Re.compile (to_re ~case_sensitive t)
     ; extract_value_from_captured_groups = t.extract_value_from_captured_groups
     }
   ;;
@@ -324,9 +355,9 @@ end = struct
   ;;
 
   module Decimal = struct
-    let digit : int t = map Char.digit ~f:(fun c -> Int.of_string (String.of_char c))
+    let digit = map Char.digit ~f:(fun c -> Int.of_string (String.of_char c))
 
-    let sign : int t =
+    let sign =
       map
         (optional (Char.one_of [ '+'; '-' ]))
         ~f:(fun c ->
@@ -337,7 +368,7 @@ end = struct
             raise_s (Atom (Printf.sprintf "matched a character other than [+, -]: %c" c)))
     ;;
 
-    let unsigned = map (capture (repeat ~min:1 (Char.digit |> ignore_m))) ~f:Int.of_string
+    let unsigned = map (capture (repeat ~min:1 (ignore_m Char.digit))) ~f:Int.of_string
     let int = map2 sign unsigned ~f:( * )
   end
 end
@@ -345,7 +376,54 @@ end
 include Body
 
 module Open_on_rhs_intf = struct
-  module type S = Re_parser_intf.S with type 'a t = 'a t
+  module type S = S with type 'a t = 'a t
 end
 
 include Applicative.Make_let_syntax (Body) (Open_on_rhs_intf) (Body)
+
+module Portable = struct
+  module Portable_body : S_portable with type 'a t = 'a t and module Compiled = Compiled =
+  struct
+    include Body
+
+    let return = return
+    let apply = apply
+    let both = both
+    let map = map
+    let map2 = map2
+    let map3 = map3
+    let all = all
+    let all_unit = all_unit
+    let ( <*> ) = ( <*> )
+    let ( <* ) = ( <* )
+    let ( *> ) = ( *> )
+    let ( >>| ) = ( >>| )
+
+    module Applicative_infix = Applicative_infix
+
+    let compile = compile
+    let ignore_m = ignore_m
+    let capture = capture
+    let and_capture = and_capture
+    let or_ = or_
+    let optional = optional
+    let repeat = repeat
+    let times = times
+    let of_re = of_re
+  end
+
+  include Portable_body
+
+  module Open_on_rhs_intf = struct
+    module type S = S_portable with type 'a t = 'a t
+  end
+
+  module Let_syntax = struct
+    include Portable_body
+
+    module Let_syntax = struct
+      include Portable_body
+      module Open_on_rhs = Portable_body
+    end
+  end
+end
